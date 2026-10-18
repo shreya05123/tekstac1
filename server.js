@@ -1,82 +1,72 @@
 require("dotenv").config();
 
 const express = require("express");
-const session = require("express-session");
-const passport = require("passport");
-const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const jwt = require("jsonwebtoken");
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
+const jwtSecret = process.env.JWT_SECRET;
 
-if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-  throw new Error("Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file.");
+if (!jwtSecret) {
+  throw new Error("Set JWT_SECRET in your .env file.");
 }
 
-passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL: process.env.CALLBACK_URL || `http://localhost:${port}/auth/google/callback`
-}, (_accessToken, _refreshToken, profile, done) => done(null, {
-  id: profile.id,
-  displayName: profile.displayName || "Google user"
-})));
+app.use(express.json());
 
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((user, done) => done(null, user));
+// Demo account for this assignment.
+const users = [{ id: 1, username: "user1", password: "password123" }];
 
-app.use(session({
-  secret: process.env.SESSION_SECRET || "development-session-secret-change-me",
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 24 * 60 * 60 * 1000
+const movies = [
+  { id: 1, title: "The Last Horizon", genre: "Adventure" },
+  { id: 2, title: "Neon City", genre: "Science Fiction" },
+  { id: 3, title: "The Hidden Kingdom", genre: "Fantasy" }
+];
+
+app.post("/login", (req, res) => {
+  const { username, password } = req.body || {};
+  const user = users.find((entry) =>
+    entry.username === username && entry.password === password
+  );
+
+  if (!user) {
+    return res.status(401).json({ message: "Invalid username or password" });
   }
-}));
-app.use(passport.initialize());
-app.use(passport.session());
 
-const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-}[character]));
+  const token = jwt.sign(
+    { id: user.id, username: user.username },
+    jwtSecret,
+    { algorithm: "HS256", expiresIn: "1h" }
+  );
 
-app.get("/", (_req, res) => {
-  res.type("html").send(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Sign-In</title></head>
-<body><main><h1>OAuth-Based Login</h1><p>Sign in securely with your Google account.</p><a href="/auth/google">Login with Google</a></main></body></html>`);
-});
-
-app.get("/auth/google", passport.authenticate("google", { scope: ["profile"] }));
-app.get("/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login-failure" }),
-  (_req, res) => res.redirect("/dashboard")
-);
-
-app.get("/dashboard", (req, res) => {
-  if (!req.isAuthenticated()) return res.redirect("/");
-  const name = escapeHtml(req.user.displayName);
-  res.type("html").send(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard</title></head>
-<body><main><h1>Welcome, ${name}!</h1><p>You are signed in with Google.</p><a href="/logout">Log out</a></main></body></html>`);
-});
-
-app.get("/login-failure", (_req, res) => {
-  res.status(401).type("html").send(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Login failed</title></head>
-<body><main><h1>Login failed</h1><p>Google sign-in could not be completed. Please try again.</p><a href="/auth/google">Try again</a></main></body></html>`);
-});
-
-app.get("/logout", (req, res, next) => {
-  req.logout((error) => {
-    if (error) return next(error);
-    req.session.destroy((sessionError) => {
-      if (sessionError) return next(sessionError);
-      res.clearCookie("connect.sid");
-      res.redirect("/");
-    });
+  return res.json({
+    message: "Login successful",
+    token
   });
 });
 
-app.listen(port, () => console.log(`Server listening at http://localhost:${port}`));
+function authenticateToken(req, res, next) {
+  const authorization = req.headers.authorization;
+  const [scheme, token] = authorization ? authorization.split(" ") : [];
+
+  if (scheme !== "Bearer" || !token) {
+    return res.status(401).json({ message: "Access token is required" });
+  }
+
+  jwt.verify(token, jwtSecret, { algorithms: ["HS256"] }, (error, payload) => {
+    if (error) {
+      return res.status(403).json({ message: "Invalid or expired token" });
+    }
+    req.user = payload;
+    return next();
+  });
+}
+
+app.get("/movies", authenticateToken, (_req, res) => {
+  res.json({ movies });
+});
+
+app.use((_req, res) => {
+  res.status(404).json({ message: "Route not found" });
+});
+
+app.listen(port, () => console.log(`Server listening on port ${port}`));

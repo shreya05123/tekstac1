@@ -1,15 +1,13 @@
 {
-  "name": "assignment-1-google-oauth",
+  "name": "assignment-2-jwt-authentication",
   "version": "1.0.0",
   "private": true,
-  "description": "Google OAuth login with Node.js and Passport.js",
+  "description": "JWT authentication for protected movie API routes",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "dependencies": {
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "express-session": "^1.18.1",
-    "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0"
+    "jsonwebtoken": "^9.0.2"
   }
 }
